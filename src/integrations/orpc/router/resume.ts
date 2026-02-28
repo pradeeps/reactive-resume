@@ -1,9 +1,11 @@
 import z from "zod";
+import { defaultResumeData } from "@/schema/resume/data";
 import { sampleResumeData } from "@/schema/resume/sample";
 import { generateRandomName, slugify } from "@/utils/string";
 import { protectedProcedure, publicProcedure, serverOnlyProcedure } from "../context";
 import { resumeDto } from "../dto/resume";
 import { resumeService } from "../services/resume";
+import { uploadFile } from "../services/storage";
 
 const tagsRouter = {
 	list: protectedProcedure
@@ -184,6 +186,66 @@ export const resumeRouter = {
 				locale: context.locale,
 				userId: context.user.id,
 			});
+		}),
+
+	importPdf: protectedProcedure
+		.route({
+			method: "POST",
+			path: "/resumes/import/pdf",
+			tags: ["Resumes"],
+			operationId: "importResumePdf",
+			summary: "Import a resume from a PDF file (without AI)",
+			description:
+				"Uploads a PDF file to storage and creates a new resume with a link to the uploaded PDF in the notes. No AI is required. Returns the ID of the imported resume. Requires authentication.",
+			successDescription: "The ID of the imported resume.",
+		})
+		.input(resumeDto.importPdf.input)
+		.output(resumeDto.importPdf.output)
+		.errors({
+			RESUME_SLUG_ALREADY_EXISTS: {
+				message: "A resume with this slug already exists.",
+				status: 400,
+			},
+		})
+		.handler(async ({ context, input }) => {
+			const name = generateRandomName();
+			const slug = slugify(name);
+
+			// Create an empty resume first to obtain its ID
+			const resumeId = await resumeService.create({
+				name,
+				slug,
+				tags: [],
+				locale: context.locale,
+				userId: context.user.id,
+			});
+
+			// Upload the PDF to storage
+			const pdfData = Buffer.from(input.file.data, "base64");
+			const { url } = await uploadFile({
+				userId: context.user.id,
+				data: new Uint8Array(pdfData),
+				contentType: "application/pdf",
+				type: "pdf",
+				resumeId,
+			});
+
+			// Store the PDF URL in the resume notes so the user can reference it
+			const pdfNote = `<p>Original PDF: <a href="${url}" target="_blank" rel="noopener noreferrer">${input.file.name}</a></p>`;
+			await resumeService.update({
+				id: resumeId,
+				userId: context.user.id,
+				data: {
+					...defaultResumeData,
+					metadata: {
+						...defaultResumeData.metadata,
+						notes: pdfNote,
+						page: { ...defaultResumeData.metadata.page, locale: context.locale },
+					},
+				},
+			});
+
+			return resumeId;
 		}),
 
 	update: protectedProcedure

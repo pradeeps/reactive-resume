@@ -55,6 +55,16 @@ export const resumeDto = {
 		output: z.string().describe("The ID of the imported resume."),
 	},
 
+	importPdf: {
+		input: z.object({
+			file: z.object({
+				name: z.string(),
+				data: z.string().describe("Base64-encoded PDF file data."),
+			}),
+		}),
+		output: z.string().describe("The ID of the imported resume."),
+	},
+
 	update: {
 		input: resumeSchema
 			.pick({ name: true, slug: true, tags: true, data: true, isPublic: true })

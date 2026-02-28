@@ -31,6 +31,10 @@ const formSchema = z.discriminatedUnion("type", [
 		file: z.instanceof(File).refine((file) => file.type === "application/pdf", { message: "File must be a PDF" }),
 	}),
 	z.object({
+		type: z.literal("pdf-upload"),
+		file: z.instanceof(File).refine((file) => file.type === "application/pdf", { message: "File must be a PDF" }),
+	}),
+	z.object({
 		type: z.literal("docx"),
 		file: z
 			.instanceof(File)
@@ -72,6 +76,7 @@ export function ImportResumeDialog(_: DialogProps<"resume.import">) {
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 
 	const { mutateAsync: importResume } = useMutation(orpc.resume.import.mutationOptions());
+	const { mutateAsync: importResumePdf } = useMutation(orpc.resume.importPdf.mutationOptions());
 
 	const form = useForm<FormValues>({
 		resolver: zodResolver(formSchema),
@@ -106,11 +111,24 @@ export function ImportResumeDialog(_: DialogProps<"resume.import">) {
 
 		setIsLoading(true);
 
+		const isAIType = values.type === "pdf" || values.type === "docx";
 		const toastId = toast.loading(t`Importing your resume...`, {
-			description: t`This may take a few minutes, depending on the response of the AI provider. Please do not close the window or refresh the page.`,
+			description: isAIType
+				? t`This may take a few minutes, depending on the response of the AI provider. Please do not close the window or refresh the page.`
+				: null,
 		});
 
 		try {
+			if (values.type === "pdf-upload") {
+				const arrayBuffer = await values.file.arrayBuffer();
+				const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+
+				await importResumePdf({ file: { name: values.file.name, data: base64 } });
+				toast.success(t`Your resume has been imported successfully.`, { id: toastId, description: null });
+				closeDialog();
+				return;
+			}
+
 			let data: ResumeData | undefined;
 
 			if (values.type === "json-resume-json") {
@@ -218,6 +236,7 @@ export function ImportResumeDialog(_: DialogProps<"resume.import">) {
 											{ value: "reactive-resume-json", label: "Reactive Resume (JSON)" },
 											{ value: "reactive-resume-v4-json", label: "Reactive Resume v4 (JSON)" },
 											{ value: "json-resume-json", label: "JSON Resume" },
+											{ value: "pdf-upload", label: "PDF (Direct Upload)" },
 											{
 												value: "pdf",
 												label: (
